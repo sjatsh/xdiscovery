@@ -11,10 +11,6 @@
 http://10.0.1.101:8500
 #
 ## 自我保护模式和注册规范说明
-### 自我保护请参考:
-http://km.qutoutiao.net/pages/viewpage.action?pageId=110955458
-### 服务注册规范请遵循:
-http://km.qutoutiao.net/pages/viewpage.action?pageId=88485252
 
 #
 ## 使用方法
@@ -24,7 +20,6 @@ d, err := factory.NewDiscovery(factory.KernelConsul, factory.Opts{
     ConsulOpts: consul.Opts{ // 只有在使用 KernelConsul 时才需要
         Address: "http://127.0.0.1:8500", // consul 地址(必填)
     },
-    // 自我保护规则请参考: http://km.qutoutiao.net/pages/viewpage.action?pageId=110955458
     Degrade: discovery.DegradeOpts{
         Threshold: 0.5, // 阈值, consul 当前获取的列表数/以前的列表 低于这个值进入自我保护
         Flag:      0,   // 0-开启自我保护; 1-关闭自我保护,使用注册中心的数据, 默认 0
@@ -32,7 +27,6 @@ d, err := factory.NewDiscovery(factory.KernelConsul, factory.Opts{
     InitHistoryEndpoints: initHistoryEndpoints, // 每个服务对应的初始化数据(进程重启时从其他地方恢复,map 的 key 是服务名)
 })
 
-// 注册服务，服务注册规范:http://km.qutoutiao.net/pages/viewpage.action?pageId=88485252
 svc := &discovery.Service{
     Name: // ops 应用名(prd/pre环境使用服务名区分具体请遵循服务注册规范)
     Address: // 本机ip
