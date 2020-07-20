@@ -20,7 +20,7 @@ type Discovery interface {
     // Watch 监听一个服务变更, 不区分 tag, 直接监听所有 tags
     Watch(service string, onUpdate OnUpdate, opts ...WatchOption) (Watcher, error)
 
-    // GetServers 按照这组服务节点列表和版本号, 请不要修改任何 *ServiceList 中的变量,tag被废弃不被用作prd/pre环境区分(现在通过服务名来区分环境)
+    // GetServers 按照这组服务节点列表和版本号, 请不要修改任何 *ServiceList 中的变量
     GetServers(service string, tags ...string) (*ServiceList, error)
     GetServersWithDC(service string, dc string, tags ...string) (*ServiceList, error)
 
