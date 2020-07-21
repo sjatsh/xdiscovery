@@ -17,6 +17,7 @@ import (
     "encoding/json"
     "fmt"
     "io"
+    "strings"
     "sync"
     "sync/atomic"
     "time"
@@ -31,7 +32,7 @@ var watchVersion uint64
 
 type watcher struct {
     watchVersion uint64
-    addr         string
+    addr         []string
     service      string
     dc           string
     errCh        chan error
@@ -80,7 +81,7 @@ func newWatcher(opts *Opts, service, dc string, onUpdateList xdiscovery.OnUpdate
     w.plan = plan
 
     conf := &api.Config{
-        Address:    w.addr,
+        Address:    strings.Join(w.addr, ","),
         Datacenter: dc,
     }
     client, err := api.NewClient(conf)
@@ -99,7 +100,7 @@ func newWatcher(opts *Opts, service, dc string, onUpdateList xdiscovery.OnUpdate
         }
         close(w.ready)
 
-        w.errCh <- w.plan.RunWithConfig(w.addr, &api.Config{
+        w.errCh <- w.plan.RunWithConfig(strings.Join(w.addr, ","), &api.Config{
             WaitTime: opts.WatchWaitTime,
         })
     }()
@@ -136,12 +137,14 @@ func (w *watcher) WaitReady() error {
 func (w *watcher) handler(idx uint64, data interface{}) {
     entries := data.([]*api.ServiceEntry)
     w.compareServiceMu.Lock()
-    w.compareService(entries)
+    if err := w.compareService(entries); err != nil {
+        xdiscovery.Log.Errorf("watcher handler compareService error: %v", err)
+    }
     w.compareServiceMu.Unlock()
     w.previousIdx = idx
 }
 
-func (w *watcher) compareService(current []*api.ServiceEntry) {
+func (w *watcher) compareService(current []*api.ServiceEntry) error {
     w.lastEntrys = current
     // 去掉 id 重复的 entry
     currentRepeat := make(map[string]uint64) // 用于去掉重复 id 的 entry (id->max{entry.Service.CreateIndex})
@@ -171,13 +174,16 @@ func (w *watcher) compareService(current []*api.ServiceEntry) {
     w.services = services
     w.mu.Unlock()
     if w.onUpdateList != nil {
-        w.onUpdateList(xdiscovery.ServiceList{
+        if err := w.onUpdateList(xdiscovery.ServiceList{
             WatchVersion: w.watchVersion,
             Version:      version,
             Services:     services,
-        })
+        }); err != nil {
+            return err
+        }
     }
     xdiscovery.Log.Infof("[consul] service:%s update:%d", w.service, len(current))
+    return nil
 }
 
 func buildService(entry *api.ServiceEntry) *xdiscovery.Service {

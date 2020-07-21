@@ -237,7 +237,9 @@ func (d *Adapter) onEndpointsUpdate(clusters []*envoyapiv2.ClusterLoadAssignment
             w := d.watchers[cluster]
             d.mu.RUnlock()
             if w != nil {
-                w.updateService(list)
+                if err := w.updateService(list); err != nil {
+                    return err
+                }
             }
         }
     }

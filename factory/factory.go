@@ -14,6 +14,7 @@
 package factory
 
 import (
+    "errors"
     "fmt"
 
     "github.com/sjatsh/xdiscovery"
@@ -32,7 +33,7 @@ const (
 
 // Opts 合并后的配置
 type Opts struct {
-    Addr                 string
+    Addrs                []string
     ConsulOpts           consul.Opts
     EdsOpts              []eds.Option
     Degrade              xdiscovery.DegradeOpts
@@ -40,21 +41,29 @@ type Opts struct {
 }
 
 // NewDiscovery 创建服务注册发现对象
-func NewDiscovery(kernel Kernel, opts Opts) (xdiscovery.Discovery, error) {
+func NewDiscovery(kernel Kernel, opts ...Opts) (xdiscovery.Discovery, error) {
     var err error
     var adapter xdiscovery.Adapter
 
+    opt := Opts{}
+    if len(opts) > 0 {
+        opt = opts[0]
+    }
+    if len(opt.Addrs) == 0 {
+        return nil, errors.New("addr error")
+    }
+
     switch kernel {
     case KernelConsul:
-        if opts.Addr != "" {
-            opts.ConsulOpts.Address = opts.Addr
+        if len(opt.Addrs) > 0 {
+            opt.ConsulOpts.Address = opt.Addrs
         }
-        adapter, err = consul.NewConsulAdapter(&opts.ConsulOpts)
+        adapter, err = consul.NewConsulAdapter(&opt.ConsulOpts)
         if err != nil {
             return nil, err
         }
     case KernelEds:
-        adapter, err = eds.NewEdsAdapter(opts.Addr, opts.EdsOpts...)
+        adapter, err = eds.NewEdsAdapter(opt.Addrs[0], opt.EdsOpts...)
         if err != nil {
             return nil, err
         }
@@ -62,8 +71,8 @@ func NewDiscovery(kernel Kernel, opts Opts) (xdiscovery.Discovery, error) {
         return nil, fmt.Errorf("unsupported kernel")
     }
     xDiscovery, err := discovery.NewXDiscovery(discovery.Opts{
-        Degrade:              opts.Degrade,
-        InitHistoryEndpoints: opts.InitHistoryEndpoints,
+        Degrade:              opt.Degrade,
+        InitHistoryEndpoints: opt.InitHistoryEndpoints,
     }, adapter)
     return xDiscovery, err
 }

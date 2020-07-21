@@ -53,7 +53,7 @@ func (w *watcher) WaitReady() error {
 
 func (w *watcher) Stop() error {
     if !atomic.CompareAndSwapInt32(&w.closed, 0, 1) {
-        return fmt.Errorf("Already stoped")
+        return fmt.Errorf("already stoped")
     }
     return nil
 }

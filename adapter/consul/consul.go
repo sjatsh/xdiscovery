@@ -19,7 +19,6 @@ import (
     "net"
     "net/url"
     "os"
-    "strings"
     "time"
 
     "github.com/hashicorp/consul/api"
@@ -45,7 +44,7 @@ type consulAdapter struct {
 
 // Opts Opts
 type Opts struct {
-    Address               string        // consul 或者 agent 地址(多个地址则使用','分割)
+    Address               []string      // consul 或者 agent 地址
     TTL                   time.Duration // 服务注册后和 agent 心跳间隔, 默认5s
     ResponseHeaderTimeout time.Duration // http 请求等待回复时间, 默认15s
     WatchWaitTime         time.Duration // watch 无变每次长轮询等待时间, 默认 50s
@@ -58,7 +57,7 @@ func NewConsulAdapter(opts *Opts) (xdiscovery.Adapter, error) {
         opt = *opts
     }
     if len(opt.Address) == 0 {
-        opt.Address = defaultAddress
+        opt.Address = []string{defaultAddress}
     }
     if opt.TTL == 0 {
         opt.TTL = defaultTTL
@@ -69,9 +68,8 @@ func NewConsulAdapter(opts *Opts) (xdiscovery.Adapter, error) {
     if opt.WatchWaitTime == 0 {
         opt.WatchWaitTime = defaultWatchWaitTime
     }
-    addrs := strings.Split(opt.Address, ",")
     var urls []*url.URL
-    for _, addr := range addrs {
+    for _, addr := range opt.Address {
         u, err := url.Parse(addr)
         if err != nil {
             return nil, err
@@ -149,8 +147,4 @@ func (d *consulAdapter) newClient() (*api.Client, error) {
     config.Transport.ResponseHeaderTimeout = d.opts.ResponseHeaderTimeout
     xdiscovery.Log.Infof("consul client config:%+v", config)
     return api.NewClient(config)
-}
-
-func init() {
-    rand.Seed(time.Now().UnixNano())
 }

@@ -11,41 +11,44 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-package consul
+package etcd
 
 import (
+    "context"
     "encoding/json"
     "fmt"
     "strconv"
+    "strings"
     "sync/atomic"
     "time"
 
+    "github.com/etcd-io/etcd/clientv3"
     "github.com/hashicorp/consul/api"
 
     "github.com/sjatsh/xdiscovery"
     "github.com/sjatsh/xdiscovery/adapter"
 )
 
-const (
-    DefaultCheckInterval = 5 * time.Second
-    DefaultCheckTimeout  = 2 * time.Second
-)
-
 type registry struct {
-    d      *consulAdapter
-    client *api.Client
-    opts   atomic.Value // *xdiscovery.RegisterOpts
-    svc    atomic.Value // *xdiscovery.Service
+    d      *etcdAdapter
+    client *clientv3.Client
+    opts   atomic.Value // *xdiscovery.RegisterOpts  注册配置
+    svc    atomic.Value // *xdiscovery.Service 注册服务
+
+    lease         clientv3.Lease               // 租约
+    leaseResp     *clientv3.LeaseGrantResponse // 租约响应结果
+    cancelFunc    func()
+    keepAliveChan <-chan *clientv3.LeaseKeepAliveResponse
+    key           string
 
     deRegistered int32
 }
 
-func newRegistry(d *consulAdapter) *registry {
-    p := &registry{
+func newRegistry(d *etcdAdapter) *registry {
+    return &registry{
         d:      d,
         client: d.client,
     }
-    return p
 }
 
 // Deregister 服务注销
@@ -78,26 +81,28 @@ func (r *registry) Update(s *xdiscovery.Service, opts ...xdiscovery.RegisterOpts
     }
     r.svc.Store(newSvc)
     r.opts.Store(newOpts)
-    return r.register(true)
+    return r.register()
 }
 
-// init 服务初始化
 func (r *registry) init(svc *xdiscovery.Service, opts *xdiscovery.RegisterOpts) error {
     newSvc, newOpts, err := adapter.ParseService(svc, opts)
     if err != nil {
         return err
     }
-    // 存储服务对应配置
     r.svc.Store(newSvc)
     r.opts.Store(newOpts)
 
-    // 进行服务注册 进行两次尝试
+    // 续租并监听续租状态
+    if err := r.setLease(600); err != nil {
+        return err
+    }
+    go r.listenLeaseRespChan()
+
     maxRetry := 2
     for i := 0; i < maxRetry; i++ {
-        if err := r.register(false); err == nil {
+        if err := r.register(); err == nil {
             break
         }
-        // 注册服务报错
         if i == maxRetry-1 {
             return fmt.Errorf("service:%+v register err:%v", *svc, err)
         }
@@ -107,25 +112,30 @@ func (r *registry) init(svc *xdiscovery.Service, opts *xdiscovery.RegisterOpts) 
     return nil
 }
 
-// register 服务注册
-func (r *registry) register(update bool) error {
+func (r *registry) setLease(ttl int64) error {
+    lease := clientv3.NewLease(r.client)
+
+    leaseResp, err := lease.Grant(context.TODO(), ttl)
+    if err != nil {
+        return err
+    }
+
+    ctx, cancelFunc := context.WithCancel(context.TODO())
+    leaseRespChan, err := lease.KeepAlive(ctx, leaseResp.ID)
+    if err != nil {
+        return err
+    }
+
+    r.lease = lease
+    r.leaseResp = leaseResp
+    r.cancelFunc = cancelFunc
+    r.keepAliveChan = leaseRespChan
+    return nil
+}
+
+func (r *registry) register() error {
     opts := r.opts.Load().(*xdiscovery.RegisterOpts)
     svc := r.svc.Load().(*xdiscovery.Service)
-    unregisterAfter := 24 * time.Hour
-
-    checkService := &api.AgentServiceCheck{
-        CheckID:                        "service:" + svc.ID,
-        Interval:                       opts.CheckInterval.String(),
-        DeregisterCriticalServiceAfter: unregisterAfter.String(),
-        Timeout:                        opts.CheckTimeout.String(),
-    }
-    if opts.CheckHTTP != nil {
-        checkService.HTTP = "http://" + opts.CheckIP + ":" + strconv.Itoa(opts.CheckPort) + opts.CheckHTTP.Path
-        checkService.Header = opts.CheckHTTP.Header
-        checkService.Method = opts.CheckHTTP.Method
-    } else {
-        checkService.TCP = opts.CheckIP + ":" + strconv.Itoa(opts.CheckPort)
-    }
 
     // 注入健康检查信息
     meta := svc.Meta
@@ -136,10 +146,10 @@ func (r *registry) register(update bool) error {
         b, err := json.Marshal(&xdiscovery.HealthCheck{
             Interval: api.ReadableDuration(opts.CheckInterval),
             Timeout:  api.ReadableDuration(opts.CheckTimeout),
-            HTTP:     checkService.HTTP,
-            Header:   checkService.Header,
-            Method:   checkService.Method,
-            TCP:      checkService.TCP,
+            HTTP:     "http://" + opts.CheckIP + ":" + strconv.Itoa(opts.CheckPort) + opts.CheckHTTP.Path,
+            Header:   opts.CheckHTTP.Header,
+            Method:   opts.CheckHTTP.Method,
+            TCP:      opts.CheckIP + ":" + strconv.Itoa(opts.CheckPort),
         })
         if err != nil {
             return err
@@ -148,30 +158,43 @@ func (r *registry) register(update bool) error {
     }
     meta[xdiscovery.RegTimeMetaKey] = strconv.FormatInt(time.Now().Unix(), 10)
 
-    registration := &api.AgentServiceRegistration{
-        ID:      svc.ID,
-        Name:    svc.Name,
-        Tags:    svc.Tags,
-        Port:    svc.Port,
-        Address: svc.Address,
-        Weights: &api.AgentWeights{
-            Passing: svc.Weight,
-            Warning: svc.Weight,
-        },
-        Meta:   meta,
-        Checks: api.AgentServiceChecks{checkService},
+    v := map[string]interface{}{
+        "name":    svc.Name,
+        "address": svc.Address,
+        "port":    svc.Port,
+        "weight":  svc.Weight,
+        "tags":    svc.Tags,
+        "meta":    meta,
     }
-    // 更新 check 信息时先注销之前的 check
-    if update {
-        checkService.Status = api.HealthPassing // 健康检查默认为 passing
-        if err := r.client.Agent().CheckDeregister(checkService.CheckID); err != nil {
-            return err
+    data, _ := json.Marshal(v)
+
+    svc.ID = strings.ReplaceAll(svc.ID, adapter.ConsulServiceIDSplitChar, adapter.EtcdServiceIDSplitChar)
+
+    kv := clientv3.NewKV(r.client)
+    lease := clientv3.WithLease(r.leaseResp.ID)
+    if _, err := kv.Put(context.TODO(), svc.ID, string(data), lease); err != nil {
+        return err
+    }
+    return nil
+}
+
+func (r *registry) listenLeaseRespChan() {
+    for {
+        select {
+        case leaseKeepResp := <-r.keepAliveChan:
+            if leaseKeepResp == nil {
+                xdiscovery.Log.Warnf("close lease\n")
+                return
+            }
+            xdiscovery.Log.Infof("lease keep alive success\n")
         }
     }
-    return r.client.Agent().ServiceRegister(registration)
 }
 
 func (r *registry) unregister() error {
-    svc := r.svc.Load().(*xdiscovery.Service)
-    return r.client.Agent().ServiceDeregister(svc.ID)
+    r.cancelFunc()
+    if _, err := r.lease.Revoke(context.TODO(), r.leaseResp.ID); err != nil {
+        return err
+    }
+    return nil
 }
