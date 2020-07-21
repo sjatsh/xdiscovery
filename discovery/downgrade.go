@@ -71,7 +71,7 @@ type degrade struct {
     applyList              xdiscovery.ServiceList // 正在应用的节点列表(Normal状态时和latestAdapterList一致, SelfProtection状态时是 latestAdapterList+latestAdapterList经过健康检查后的节点)
 }
 
-func newDegrade(cluster string, opts xdiscovery.DegradeOpts, initHistoryEndpoints map[string]xdiscovery.ServiceList, onUpdateList xdiscovery.OnUpdateList) (*degrade, error) {
+func newDegrade(cluster string, opts *xdiscovery.DegradeOpts, initHistoryEndpoints map[string]xdiscovery.ServiceList, onUpdateList xdiscovery.OnUpdateList) (*degrade, error) {
     d := &degrade{
         cluster:                cluster,
         doUpdateList:           onUpdateList,
@@ -96,8 +96,8 @@ func newDegrade(cluster string, opts xdiscovery.DegradeOpts, initHistoryEndpoint
                 unixNano: time.Now().Unix() - int64(opts.ThresholdContrastInterval),
                 list:     list,
             }
-            d.historyEndpoints.push(elemInit, &opts)
-            d.stableHistoryEndpoints.push(elemInit, &opts)
+            d.historyEndpoints.push(elemInit, opts)
+            d.stableHistoryEndpoints.push(elemInit, opts)
         }
     }
     return d, nil
@@ -204,8 +204,8 @@ func (d *degrade) getOpts() *xdiscovery.DegradeOpts {
     return d.opts.Load().(*xdiscovery.DegradeOpts)
 }
 
-func (d *degrade) updateOpts(opts xdiscovery.DegradeOpts) error {
-    d.opts.Store(&opts)
+func (d *degrade) updateOpts(opts *xdiscovery.DegradeOpts) error {
+    d.opts.Store(opts)
     if opts.Flag == 1 {
         // 关闭降级,主动取消正在运行的 ping
         if err := d.stopSelfProtection(-1); err != nil {

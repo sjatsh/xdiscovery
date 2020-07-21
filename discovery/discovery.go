@@ -25,7 +25,7 @@ var _ xdiscovery.Discovery = (*discoverer)(nil)
 
 // Opts 配置
 type Opts struct {
-    Degrade              xdiscovery.DegradeOpts
+    Degrade              *xdiscovery.DegradeOpts
     InitHistoryEndpoints map[string]xdiscovery.ServiceList // 初始化每个服务的历史数据(进程重启时恢复历史节点，否则会在重启时没有历史节点作为基准数据对比)
 }
 
@@ -40,13 +40,19 @@ type discoverer struct {
 }
 
 // NewXDiscovery
-func NewXDiscovery(opts Opts, adapter xdiscovery.Adapter) (xdiscovery.Discovery, error) {
+func NewXDiscovery(opts *Opts, adapter xdiscovery.Adapter) (xdiscovery.Discovery, error) {
+    var degrade *xdiscovery.DegradeOpts
+    var initHistoryEndpoints map[string]xdiscovery.ServiceList
+    if opts != nil {
+        degrade = opts.Degrade
+        initHistoryEndpoints = opts.InitHistoryEndpoints
+    }
     d := &discoverer{
         Adapter:              adapter,
         watchers:             map[string]*watch{},
-        initHistoryEndpoints: opts.InitHistoryEndpoints,
+        initHistoryEndpoints: initHistoryEndpoints,
     }
-    if err := d.UpdateDegradeOpts(opts.Degrade); err != nil {
+    if err := d.UpdateDegradeOpts(degrade); err != nil {
         return nil, err
     }
     return d, nil
@@ -98,7 +104,10 @@ func (d *discoverer) Watch(service string, onUpdate xdiscovery.OnUpdate, opts ..
 }
 
 // UpdateDegradeOpts 动态更新降级配置
-func (d *discoverer) UpdateDegradeOpts(opts xdiscovery.DegradeOpts) error {
+func (d *discoverer) UpdateDegradeOpts(opts *xdiscovery.DegradeOpts) error {
+    if opts == nil {
+        opts = &xdiscovery.DegradeOpts{}
+    }
     if opts.Flag < 0 || opts.Flag > 1 {
         return fmt.Errorf("invalid flag:%d", opts.Flag)
     }
@@ -117,7 +126,7 @@ func (d *discoverer) UpdateDegradeOpts(opts xdiscovery.DegradeOpts) error {
     if opts.PanicThreshold == 0 {
         opts.PanicThreshold = defaultPanicThreshold
     }
-    d.degradeOpts.Store(&opts)
+    d.degradeOpts.Store(opts)
     var watchers []xdiscovery.Watcher
     d.mux.RLock()
     for _, w := range d.watchers {
@@ -156,7 +165,7 @@ func (d *discoverer) WatchList(service string, onUpdateList xdiscovery.OnUpdateL
 
 func (d *discoverer) newWatch(service string, onUpdateList xdiscovery.OnUpdateList, wopts ...xdiscovery.WatchOption) (*watch, error) {
     degradeOpts := d.degradeOpts.Load().(*xdiscovery.DegradeOpts)
-    deg, err := newDegrade(service, *degradeOpts, d.initHistoryEndpoints, onUpdateList)
+    deg, err := newDegrade(service, degradeOpts, d.initHistoryEndpoints, onUpdateList)
     if err != nil {
         return nil, err
     }

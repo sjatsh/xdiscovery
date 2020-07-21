@@ -81,7 +81,7 @@ func (r *registry) Update(s *xdiscovery.Service, opts ...xdiscovery.RegisterOpts
     }
     r.svc.Store(newSvc)
     r.opts.Store(newOpts)
-    return r.register()
+    return r.register(true)
 }
 
 func (r *registry) init(svc *xdiscovery.Service, opts *xdiscovery.RegisterOpts) error {
@@ -92,15 +92,9 @@ func (r *registry) init(svc *xdiscovery.Service, opts *xdiscovery.RegisterOpts) 
     r.svc.Store(newSvc)
     r.opts.Store(newOpts)
 
-    // 续租并监听续租状态
-    if err := r.setLease(600); err != nil {
-        return err
-    }
-    go r.listenLeaseRespChan()
-
     maxRetry := 2
     for i := 0; i < maxRetry; i++ {
-        if err := r.register(); err == nil {
+        if err := r.register(false); err == nil {
             break
         }
         if i == maxRetry-1 {
@@ -108,6 +102,15 @@ func (r *registry) init(svc *xdiscovery.Service, opts *xdiscovery.RegisterOpts) 
         }
         xdiscovery.Log.Errorf("service:%+v register err:%v", *svc, err)
         time.Sleep(time.Second)
+    }
+
+    // 续租并监听续租状态 默认租约
+    var ttl int64 = defaultLeaseTime
+    if opts.CheckTTL != 0 {
+        ttl = int64(opts.CheckTTL)
+    }
+    if err := r.setLease(ttl); err != nil {
+        return err
     }
     return nil
 }
@@ -130,10 +133,13 @@ func (r *registry) setLease(ttl int64) error {
     r.leaseResp = leaseResp
     r.cancelFunc = cancelFunc
     r.keepAliveChan = leaseRespChan
+
+    // 监听租约续租心跳
+    go r.listenLeaseRespChan()
     return nil
 }
 
-func (r *registry) register() error {
+func (r *registry) register(update bool) error {
     opts := r.opts.Load().(*xdiscovery.RegisterOpts)
     svc := r.svc.Load().(*xdiscovery.Service)
 
@@ -143,36 +149,34 @@ func (r *registry) register() error {
         meta = map[string]string{}
     }
     if _, existed := meta[xdiscovery.HealthCheckMetaKey]; !existed {
-        b, err := json.Marshal(&xdiscovery.HealthCheck{
+        healthCheck := &xdiscovery.HealthCheck{
             Interval: api.ReadableDuration(opts.CheckInterval),
             Timeout:  api.ReadableDuration(opts.CheckTimeout),
-            HTTP:     "http://" + opts.CheckIP + ":" + strconv.Itoa(opts.CheckPort) + opts.CheckHTTP.Path,
-            Header:   opts.CheckHTTP.Header,
-            Method:   opts.CheckHTTP.Method,
             TCP:      opts.CheckIP + ":" + strconv.Itoa(opts.CheckPort),
-        })
+        }
+        if opts.CheckHTTP != nil {
+            healthCheck.Header = opts.CheckHTTP.Header
+            healthCheck.Method = opts.CheckHTTP.Method
+            healthCheck.HTTP = "http://" + opts.CheckIP + ":" + strconv.Itoa(opts.CheckPort) + opts.CheckHTTP.Path
+        }
+        b, err := json.Marshal(healthCheck)
         if err != nil {
             return err
         }
         meta[xdiscovery.HealthCheckMetaKey] = string(b)
     }
     meta[xdiscovery.RegTimeMetaKey] = strconv.FormatInt(time.Now().Unix(), 10)
+    svc.Meta = meta
 
-    v := map[string]interface{}{
-        "name":    svc.Name,
-        "address": svc.Address,
-        "port":    svc.Port,
-        "weight":  svc.Weight,
-        "tags":    svc.Tags,
-        "meta":    meta,
-    }
-    data, _ := json.Marshal(v)
-
-    svc.ID = strings.ReplaceAll(svc.ID, adapter.ConsulServiceIDSplitChar, adapter.EtcdServiceIDSplitChar)
+    data, _ := json.Marshal(svc)
 
     kv := clientv3.NewKV(r.client)
-    lease := clientv3.WithLease(r.leaseResp.ID)
-    if _, err := kv.Put(context.TODO(), svc.ID, string(data), lease); err != nil {
+    var leaseId clientv3.LeaseID
+    if update {
+        leaseId = r.leaseResp.ID
+    }
+    lease := clientv3.WithLease(leaseId)
+    if _, err := kv.Put(context.TODO(), strings.ReplaceAll(svc.ID, adapter.ConsulServiceIDSplitChar, adapter.EtcdServiceIDSplitChar), string(data), lease); err != nil {
         return err
     }
     return nil
@@ -183,7 +187,7 @@ func (r *registry) listenLeaseRespChan() {
         select {
         case leaseKeepResp := <-r.keepAliveChan:
             if leaseKeepResp == nil {
-                xdiscovery.Log.Warnf("close lease\n")
+                xdiscovery.Log.Warnf("close lease listen\n")
                 return
             }
             xdiscovery.Log.Infof("lease keep alive success\n")

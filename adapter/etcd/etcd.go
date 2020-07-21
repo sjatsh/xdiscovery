@@ -24,6 +24,7 @@ import (
 const (
     defaultEtcdAddr    = "127.0.0.1:2379"
     defaultDailTimeout = 5 * time.Second
+    defaultLeaseTime   = 600
 )
 
 type etcdAdapter struct {
@@ -31,7 +32,16 @@ type etcdAdapter struct {
     config clientv3.Config
 }
 
+// etcd服务注册发现适配器
 func NewEtcdAdapter(opts *clientv3.Config) (xdiscovery.Adapter, error) {
+    if opts == nil {
+        opts = &clientv3.Config{}
+    }
+    if len(opts.Endpoints) == 0 {
+        opts.Endpoints = []string{defaultEtcdAddr}
+        opts.DialTimeout = defaultDailTimeout
+    }
+
     cli, err := clientv3.New(*opts)
     if err != nil {
         return nil, err
@@ -61,7 +71,5 @@ func (d *etcdAdapter) WatchList(service string, onUpdateList xdiscovery.OnUpdate
     if len(opts) > 0 {
         opt = opts[0]
     }
-
-    w := newWatcher(d.config, service, opt.DC, onUpdateList)
-    return w, nil
+    return newWatcher(d.config, service, opt.DC, onUpdateList)
 }

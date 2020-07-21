@@ -24,8 +24,8 @@ type Discovery interface {
     GetServers(service string, tags ...string) (*ServiceList, error)
     GetServersWithDC(service string, dc string, tags ...string) (*ServiceList, error)
 
-    UpdateDegradeOpts(opts DegradeOpts) error // UpdateDegradeOpts  动态更新降级配置, DegradeOpts 具体降级配置
-    Shutdown() error                          // Shutdown 停止
+    UpdateDegradeOpts(opts *DegradeOpts) error // UpdateDegradeOpts  动态更新降级配置, DegradeOpts 具体降级配置
+    Shutdown() error                           // Shutdown 停止
 }
 
 // Watcher 单个服务事件监听

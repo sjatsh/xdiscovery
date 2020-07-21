@@ -86,7 +86,7 @@ func newWatcher(opts *Opts, service, dc string, onUpdateList xdiscovery.OnUpdate
     }
     client, err := api.NewClient(conf)
     if err != nil {
-        return nil, fmt.Errorf("Failed to connect to agent: %v", err)
+        return nil, fmt.Errorf("failed to connect to agent: %v", err)
     }
     go func() {
         // 第一次 watch, 未处理 tags
@@ -109,7 +109,7 @@ func newWatcher(opts *Opts, service, dc string, onUpdateList xdiscovery.OnUpdate
 
 func (w *watcher) Stop() error {
     if !atomic.CompareAndSwapInt32(&w.closed, 0, 1) {
-        return fmt.Errorf("Already stoped")
+        return fmt.Errorf("already stoped")
     }
     w.plan.Stop()
     w.writer.Close()
