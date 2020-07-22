@@ -135,18 +135,18 @@ func (d *degrade) getNormalServices(srvs []*xdiscovery.Service) (normals []*xdis
 }
 
 // onUpdateList 包装 watcher 的 onUpdateList
-func (d *degrade) onUpdateList(xdiscoveryList xdiscovery.ServiceList) error {
+func (d *degrade) onUpdateList(xDiscoveryList xdiscovery.ServiceList) error {
     // 有标记下线的节点直接删除
-    var offlinesList map[string]*xdiscovery.Service
-    newxdiscoveryList := xdiscoveryList
-    newxdiscoveryList.Services, offlinesList = d.getNormalServices(newxdiscoveryList.Services)
-    xdiscoveryList = newxdiscoveryList
+    var offLinesList map[string]*xdiscovery.Service
+    newXDiscoveryList := xDiscoveryList
+    newXDiscoveryList.Services, offLinesList = d.getNormalServices(newXDiscoveryList.Services)
+    xDiscoveryList = newXDiscoveryList
 
     opts := d.getOpts()
     var el *elem
     d.mux.Lock()
     el = d.historyEndpoints.back(opts) // 服务刚被 watch 时没有历史节点
-    d.latestAdapterList = xdiscoveryList
+    d.latestAdapterList = xDiscoveryList
     status := d.status
     d.mux.Unlock()
     // 非正常模式只更新 latestAdapterList
@@ -159,11 +159,11 @@ func (d *degrade) onUpdateList(xdiscoveryList xdiscovery.ServiceList) error {
         // 历史节点中未被标记下线的节点数
         onlineCount := 0
         for _, srv := range el.list.Services {
-            if _, ok := offlinesList[srv.ID]; !ok {
+            if _, ok := offLinesList[srv.ID]; !ok {
                 onlineCount++
             }
         }
-        num := len(xdiscoveryList.Services)
+        num := len(xDiscoveryList.Services)
         if num > 0 {
             num += addEndpoints
         }
@@ -171,8 +171,8 @@ func (d *degrade) onUpdateList(xdiscoveryList xdiscovery.ServiceList) error {
         if now < opts.Threshold {
             // 进入自我保护模式, 变更状态，并开始健康检查
             d.startSelfProtection()
-            b, _ := json.Marshal(xdiscoveryList)
-            xdiscovery.Log.Warnf("[adapter consul]cluster:%s degrade can not update list: %s cause:proportion:%f < %f", d.cluster, string(b), now, opts.Threshold)
+            b, _ := json.Marshal(xDiscoveryList)
+            xdiscovery.Log.Warnf("[adapter]cluster:%s degrade can not update list: %s cause:proportion:%f < %f", d.cluster, string(b), now, opts.Threshold)
             return nil
         }
     }
@@ -180,7 +180,7 @@ func (d *degrade) onUpdateList(xdiscoveryList xdiscovery.ServiceList) error {
     // 更新 historyEndpoints
     elnow := &elem{
         unixNano: time.Now().Unix(),
-        list:     xdiscoveryList,
+        list:     xDiscoveryList,
     }
     d.mux.Lock()
     d.historyEndpoints.push(elnow, opts)
@@ -193,7 +193,7 @@ func (d *degrade) onUpdateList(xdiscoveryList xdiscovery.ServiceList) error {
     }
     // 执行更新通知
     if d.doUpdateList != nil {
-        if err := d.doUpdateList(xdiscoveryList); err != nil {
+        if err := d.doUpdateList(xDiscoveryList); err != nil {
             return err
         }
     }
@@ -243,7 +243,8 @@ func (d *degrade) stopSelfProtection(want int) error {
     status := d.status
     if status != statusSelfProtection && status != statusPanic {
         d.mux.Unlock()
-        return fmt.Errorf("status:%d is not statusSelfProtection or statusPanic", status)
+        xdiscovery.Log.Warnf("status:%d is not statusSelfProtection or statusPanic", status)
+        return nil
     }
     d.status = statusNormal
     pingCtxCancel := d.pingCtxCancel

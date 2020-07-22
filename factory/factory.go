@@ -70,8 +70,8 @@ func NewDiscovery(kernel Kernel, opts ...Opts) (xdiscovery.Discovery, error) {
     default:
         return nil, fmt.Errorf("unsupported kernel")
     }
-    xDiscovery, err := discovery.NewXDiscovery(discovery.Opts{
-        Degrade:              opt.Degrade,
+    xDiscovery, err := discovery.NewXDiscovery(&discovery.Opts{
+        Degrade:              &opt.Degrade,
         InitHistoryEndpoints: opt.InitHistoryEndpoints,
     }, adapter)
     return xDiscovery, err

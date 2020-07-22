@@ -84,8 +84,10 @@ func newWatcher(config clientv3.Config, service, dc string, onUpdateList xdiscov
         if err != nil {
             xdiscovery.Log.Errorf("service:%s first watch err:%v", service, err)
         } else {
-            if err := w.handler(res); err != nil {
-                xdiscovery.Log.Errorf("service:%s first watch handler, getRespKvs: %v err: %v", res.Kvs, service, err)
+            if res.Kvs != nil && len(res.Kvs) > 0 {
+                if err := w.handler(res); err != nil {
+                    xdiscovery.Log.Errorf("service:%s first watch handler, getRespKvs: %v err: %v", res.Kvs, service, err)
+                }
             }
         }
         close(w.ready)
@@ -119,11 +121,7 @@ func (w *watcher) handler(getRes *clientv3.GetResponse) error {
     defer w.compareServiceMu.Unlock()
 
     w.lastGetResp = getRes
-    if err := w.compareService(getRes.Kvs); err != nil {
-        xdiscovery.Log.Errorf("watcher handler compareService error: %v", err)
-        return err
-    }
-    return nil
+    return w.compareService(getRes.Kvs)
 }
 
 func (w *watcher) compareService(current []*mvccpb.KeyValue) error {

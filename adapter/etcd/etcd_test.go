@@ -22,14 +22,22 @@ import (
 )
 
 func TestEtcd(t *testing.T) {
-    adapter, err := NewEtcdAdapter(nil)
+    adapter, err := NewEtcdAdapter()
     if err != nil {
         t.Fatal(err)
     }
-    d, err := discovery.NewXDiscovery(nil, adapter)
+    d, err := discovery.NewXDiscovery(adapter)
     if err != nil {
         t.Fatal(err)
     }
+    _, err = d.Watch("adc-def", func(event xdiscovery.Event) error {
+        fmt.Printf("11111111111:%v", event)
+        return nil
+    })
+    if err != nil {
+        t.Fatal(err)
+    }
+
     _, err = d.Register(&xdiscovery.Service{
         Name:    "abc-def",
         Address: "127.0.0.1",
@@ -50,5 +58,5 @@ func TestEtcd(t *testing.T) {
     if err != nil {
         t.Fatal(err)
     }
-    fmt.Printf("%v", services)
+    fmt.Printf("222222222222222222:%v", services)
 }

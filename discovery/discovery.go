@@ -25,7 +25,7 @@ var _ xdiscovery.Discovery = (*discoverer)(nil)
 
 // Opts 配置
 type Opts struct {
-    Degrade              *xdiscovery.DegradeOpts
+    Degrade              *xdiscovery.DegradeOpts           // 降级配置
     InitHistoryEndpoints map[string]xdiscovery.ServiceList // 初始化每个服务的历史数据(进程重启时恢复历史节点，否则会在重启时没有历史节点作为基准数据对比)
 }
 
@@ -39,13 +39,14 @@ type discoverer struct {
     watchers    map[string]*watch
 }
 
-// NewXDiscovery
-func NewXDiscovery(opts *Opts, adapter xdiscovery.Adapter) (xdiscovery.Discovery, error) {
+// NewXDiscovery 创建服务发现对象 *Opts 降级和历史注册服务配置
+// xdiscovery.Adapter 适配器接口
+func NewXDiscovery(adapter xdiscovery.Adapter, opts ...*Opts) (xdiscovery.Discovery, error) {
     var degrade *xdiscovery.DegradeOpts
     var initHistoryEndpoints map[string]xdiscovery.ServiceList
-    if opts != nil {
-        degrade = opts.Degrade
-        initHistoryEndpoints = opts.InitHistoryEndpoints
+    if len(opts) > 0 {
+        degrade = opts[0].Degrade
+        initHistoryEndpoints = opts[0].InitHistoryEndpoints
     }
     d := &discoverer{
         Adapter:              adapter,

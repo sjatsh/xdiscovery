@@ -33,22 +33,23 @@ type etcdAdapter struct {
 }
 
 // etcd服务注册发现适配器
-func NewEtcdAdapter(opts *clientv3.Config) (xdiscovery.Adapter, error) {
-    if opts == nil {
-        opts = &clientv3.Config{}
+func NewEtcdAdapter(opts ...*clientv3.Config) (xdiscovery.Adapter, error) {
+    opt := clientv3.Config{}
+    if len(opts) > 0 {
+        opt = *opts[0]
     }
-    if len(opts.Endpoints) == 0 {
-        opts.Endpoints = []string{defaultEtcdAddr}
-        opts.DialTimeout = defaultDailTimeout
+    if len(opt.Endpoints) == 0 {
+        opt.Endpoints = []string{defaultEtcdAddr}
+        opt.DialTimeout = defaultDailTimeout
     }
 
-    cli, err := clientv3.New(*opts)
+    cli, err := clientv3.New(opt)
     if err != nil {
         return nil, err
     }
     d := &etcdAdapter{
         client: cli,
-        config: *opts,
+        config: opt,
     }
     return d, nil
 }
