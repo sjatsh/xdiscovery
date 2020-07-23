@@ -94,12 +94,11 @@ func (l *loadBalance) Next(service string, opts ...QueryOpts) (*xdiscovery.Servi
     return lb.NextServer()
 }
 
-// buildLoadBalance 创建负载均衡器
+// buildLoadBalance 按照服务列表创建负载均衡器
 func buildLoadBalance(list *xdiscovery.ServiceList) (*wrr.RoundRobinWeight, error) {
     rr := wrr.NewRoundRobinWeight()
 
     for _, srv := range list.Services {
-        // Log.Debugf("Creating server at %s with weight %d", u, srv.Weight)
         if err := rr.UpsertServer(srv); err != nil {
             return nil, fmt.Errorf("error adding server %+v to load balancer: %v", srv, err)
         }

@@ -18,13 +18,13 @@ import (
     "math/rand"
     "net"
     "net/url"
-    "os"
     "time"
 
     "github.com/hashicorp/consul/api"
     "github.com/lafikl/consistent"
 
     "github.com/sjatsh/xdiscovery"
+    "github.com/sjatsh/xdiscovery/internal/utils"
 )
 
 var _ xdiscovery.Adapter = (*consulAdapter)(nil)
@@ -131,8 +131,7 @@ func (d *consulAdapter) newClient() (*api.Client, error) {
         for _, u := range ns {
             c.Add(u + ":" + port)
         }
-        hostname, _ := os.Hostname()
-        host, err = c.Get(hostname)
+        host, err = c.Get(utils.HostName())
         if err != nil {
             return nil, fmt.Errorf("hash get err:%v", err)
         }

@@ -17,9 +17,12 @@ import (
     "errors"
     "fmt"
 
+    "github.com/etcd-io/etcd/clientv3"
+
     "github.com/sjatsh/xdiscovery"
     "github.com/sjatsh/xdiscovery/adapter/consul"
     "github.com/sjatsh/xdiscovery/adapter/eds"
+    "github.com/sjatsh/xdiscovery/adapter/etcd"
     "github.com/sjatsh/xdiscovery/discovery"
 )
 
@@ -29,6 +32,7 @@ type Kernel int
 const (
     KernelConsul Kernel = iota + 1 // KernelConsul 使用 consul 注册发现
     KernelEds                      // KernelEds 使用eds服务注册发现
+    KernelEtcd                     // KernelEtcd 使用etcd服务注册发现
 )
 
 // Opts 合并后的配置
@@ -36,6 +40,7 @@ type Opts struct {
     Addrs                []string
     ConsulOpts           consul.Opts
     EdsOpts              []eds.Option
+    EtcdOpts             *clientv3.Config
     Degrade              xdiscovery.DegradeOpts
     InitHistoryEndpoints map[string]xdiscovery.ServiceList
 }
@@ -67,12 +72,24 @@ func NewDiscovery(kernel Kernel, opts ...Opts) (xdiscovery.Discovery, error) {
         if err != nil {
             return nil, err
         }
+    case KernelEtcd:
+        etcdOpts := &clientv3.Config{}
+        if opt.EtcdOpts != nil {
+            etcdOpts = opt.EtcdOpts
+            if len(opt.Addrs) > 0 {
+                etcdOpts.Endpoints = opt.Addrs
+            }
+        }
+        adapter, err = etcd.NewEtcdAdapter(etcdOpts)
+        if err != nil {
+            return nil, err
+        }
     default:
         return nil, fmt.Errorf("unsupported kernel")
     }
-    xDiscovery, err := discovery.NewXDiscovery(&discovery.Opts{
+    xDiscovery, err := discovery.NewXDiscovery(adapter, &discovery.Opts{
         Degrade:              &opt.Degrade,
         InitHistoryEndpoints: opt.InitHistoryEndpoints,
-    }, adapter)
+    })
     return xDiscovery, err
 }

@@ -1,9 +1,9 @@
 package metrics
 
 import (
-    "os"
-
     "github.com/prometheus/client_golang/prometheus"
+
+    "github.com/sjatsh/xdiscovery/internal/utils"
 )
 
 const (
@@ -14,12 +14,10 @@ const (
 )
 
 var (
-    events   *prometheus.GaugeVec
-    hostname string
+    events *prometheus.GaugeVec
 )
 
 func init() {
-    hostname, _ = os.Hostname()
     events = prometheus.NewGaugeVec(prometheus.GaugeOpts{
         Name: "discovery_events",
     }, []string{"hostname", "cluster", "event"})
@@ -28,5 +26,5 @@ func init() {
 
 // EventSet 事件值设置
 func EventSet(event, cluster string, value float64) {
-    events.WithLabelValues(hostname, cluster, event).Set(value)
+    events.WithLabelValues(utils.HostName(), cluster, event).Set(value)
 }
